@@ -1,157 +1,330 @@
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import numpy as np
-try:
-    import glitchart  # type: ignore
-except Exception:
-    glitchart = None
+import pygame
+import math
 import random
-import argparse
 import os
+import subprocess
+from pygame import gfxdraw
+from PIL import Image, ImageDraw, ImageFont
 
-# Canvas setup
+# ===== ADVANCED CYBERPUNK CONFIG =====
 WIDTH, HEIGHT = 1920, 1080
-BG_COLOR = (10, 10, 18)  # #0a0a12
+FPS = 60
+DURATION_SEC = 5
+TOTAL_FRAMES = FPS * DURATION_SEC
+OUTPUT_DIR = "frames"
+# =====================================
 
-# Parse simple CLI options
-parser = argparse.ArgumentParser(description="Generate PUNKEMV wallpaper as video or image")
-parser.add_argument("--format", choices=["mp4", "webm", "png"], default="mp4", help="Output format")
-parser.add_argument("--fps", type=int, default=24, help="Frames per second for video")
-parser.add_argument("--seconds", type=float, default=3.0, help="Duration for video in seconds")
-parser.add_argument("--output", type=str, default=None, help="Output filename; if omitted, inferred from format")
-parser.add_argument("--seed", type=int, default=None, help="Optional RNG seed for reproducibility")
-args = parser.parse_args()
+# Initialize pygame with OpenGL acceleration
+pygame.init()
+screen = pygame.Surface((WIDTH, HEIGHT))
+pygame.display.set_caption("PUNKEMV Cyberpunk Generator")
 
-if args.seed is not None:
-    random.seed(args.seed)
-    np.random.seed(args.seed % (2**32 - 1))
+# Color palette with energy colors
+NEON_PALETTE = [
+    (0, 255, 157),   # Matrix green
+    (255, 20, 147),  # Cyber pink
+    (0, 191, 255),   # Electric blue
+    (138, 43, 226),  # Purple haze
+    (255, 215, 0),   # Cyber gold
+    (0, 255, 255),   # Cyan
+]
 
-# Create base image
-canvas = Image.new("RGB", (WIDTH, HEIGHT), BG_COLOR)
-draw = ImageDraw.Draw(canvas)
+# Advanced particle system
+class CyberParticle:
+    def __init__(self, x, y, particle_type):
+        self.x = x
+        self.y = y
+        self.type = particle_type
+        self.size = random.uniform(1.0, 4.0)
+        self.color = random.choice(NEON_PALETTE)
+        self.life = random.uniform(30, 150)
+        self.velocity = [random.uniform(-1.5, 1.5), random.uniform(-1.5, 1.5)]
+        self.trail = []
+        self.max_trail = 5
+        self.osc_speed = random.uniform(0.01, 0.05)
+        
+        if particle_type == "binary":
+            self.char = random.choice(["0", "1"])
+            self.size = random.uniform(8, 14)
+            self.velocity = [0, random.uniform(2, 6)]
+        elif particle_type == "energy":
+            self.size = random.uniform(2, 8)
+            self.velocity = [
+                random.uniform(-2, 2), 
+                random.uniform(-2, 2)
+            ]
+        elif particle_type == "circuit":
+            self.size = random.uniform(1, 3)
+            self.target = (random.randint(0, WIDTH), random.randint(0, HEIGHT))
+            self.velocity = [
+                (self.target[0] - self.x) / 60,
+                (self.target[1] - self.y) / 60
+            ]
+    
+    def update(self):
+        self.life -= 1
+        self.x += self.velocity[0]
+        self.y += self.velocity[1]
+        
+        # Add current position to trail
+        self.trail.append((self.x, self.y))
+        if len(self.trail) > self.max_trail:
+            self.trail.pop(0)
+            
+        # Particle-specific behaviors
+        if self.type == "energy":
+            self.velocity[0] += random.uniform(-0.1, 0.1)
+            self.velocity[1] += random.uniform(-0.1, 0.1)
+            self.size = max(1, self.size + random.uniform(-0.2, 0.2))
+        elif self.type == "binary" and self.y > HEIGHT:
+            self.y = -20
+            self.x = random.randint(0, WIDTH)
+        elif self.type == "circuit" and math.dist((self.x, self.y), self.target) < 10:
+            self.target = (random.randint(0, WIDTH), random.randint(0, HEIGHT))
+            self.velocity = [
+                (self.target[0] - self.x) / 60,
+                (self.target[1] - self.y) / 60
+            ]
+        
+        return self.life > 0
 
-# Add concrete texture (replace with your own texture path or generate noise)
-try:
-    texture = Image.open("concrete.jpg").convert("RGBA").resize((WIDTH, HEIGHT))
-    texture = texture.point(lambda p: p * 0.3)  # Reduce opacity
-    canvas.paste(texture, (0, 0), texture)
-except Exception:
-    print("No texture found - proceeding without")
+# Main generator class
+class CyberpunkGenerator:
+    def __init__(self):
+        self.particles = []
+        self.core_size = 100
+        self.core_pulse = 0
+        self.data_streams = []
+        self.warnings = []
+        self.font = pygame.font.SysFont("Arial", 24)
+        self.title_font = pygame.font.SysFont("Arial", 92, bold=True)
+        
+        # Initialize data streams
+        for _ in range(3):
+            self.data_streams.append({
+                'y': random.randint(100, HEIGHT - 100),
+                'speed': random.uniform(0.5, 2.0),
+                'data': " ".join([f"{random.randint(0,255):02X}" for _ in range(25)])
+            })
+    
+    def add_particles(self, count, particle_type, x=None, y=None):
+        for _ in range(count):
+            px = x if x is not None else random.randint(0, WIDTH)
+            py = y if y is not None else random.randint(0, HEIGHT)
+            self.particles.append(CyberParticle(px, py, particle_type))
+    
+    def update(self, frame_num):
+        # Update core pulse
+        self.core_pulse = 100 + 30 * math.sin(frame_num / 10)
+        
+        # Add new particles periodically
+        if frame_num % 2 == 0:
+            self.add_particles(10, "binary")
+        if frame_num % 5 == 0:
+            self.add_particles(3, "energy", WIDTH//2, HEIGHT//2)
+        if frame_num % 20 == 0:
+            self.add_particles(15, "circuit")
+        
+        # Update particles
+        self.particles = [p for p in self.particles if p.update()]
+        
+        # Update data streams
+        for stream in self.data_streams:
+            stream['y'] = 200 + 50 * math.sin(frame_num / (6 + random.random()))
+            if frame_num % 60 == 0:
+                stream['data'] = " ".join([f"{random.randint(0,255):02X}" for _ in range(25)])
+        
+        # Add random warnings
+        if random.random() < 0.02 or (frame_num % 100 == 0):
+            self.warnings.append({
+                'x': random.randint(100, WIDTH - 300),
+                'y': random.randint(100, HEIGHT - 100),
+                'life': 90
+            })
+        
+        # Update warnings
+        for warning in self.warnings:
+            warning['life'] -= 1
+        self.warnings = [w for w in self.warnings if w['life'] > 0]
+    
+    def render(self, surface):
+        # Draw dark background with subtle grid
+        surface.fill((5, 5, 15))
+        
+        # Draw subtle grid
+        for x in range(0, WIDTH, 40):
+            alpha = min(255, abs(x - WIDTH//2) // 2)
+            pygame.draw.line(surface, (20, 20, 30), (x, 0), (x, HEIGHT), 1)
+        for y in range(0, HEIGHT, 40):
+            alpha = min(255, abs(y - HEIGHT//2) // 2)
+            pygame.draw.line(surface, (20, 20, 30), (0, y), (WIDTH, y), 1)
+        
+        # Draw energy core
+        core_x, core_y = WIDTH // 2, HEIGHT // 2
+        for i in range(10, 0, -1):
+            size = self.core_pulse * i / 10
+            color = NEON_PALETTE[i % len(NEON_PALETTE)]
+            pygame.draw.circle(
+                surface, 
+                color, 
+                (core_x, core_y), 
+                size, 
+                max(1, int(i/2))
+        
+        # Draw particles with trails
+        for particle in self.particles:
+            # Draw trail
+            for i, (trail_x, trail_y) in enumerate(particle.trail):
+                alpha = int(200 * i / len(particle.trail))
+                size = particle.size * i / len(particle.trail)
+                
+                if particle.type == "binary":
+                    text = self.font.render(particle.char, True, (*particle.color, alpha))
+                    surface.blit(text, (trail_x, trail_y))
+                else:
+                    pygame.draw.circle(
+                        surface, 
+                        (*particle.color, alpha), 
+                        (int(trail_x), int(trail_y)), 
+                        size
+                    )
+            
+            # Draw main particle
+            if particle.type == "binary":
+                text = self.font.render(particle.char, True, particle.color)
+                surface.blit(text, (particle.x, particle.y))
+            else:
+                pygame.draw.circle(
+                    surface, 
+                    particle.color, 
+                    (int(particle.x), int(particle.y)), 
+                    particle.size
+                )
+        
+        # Draw data streams
+        for stream in self.data_streams:
+            text = self.font.render(stream['data'], True, NEON_PALETTE[0])
+            surface.blit(text, (50, stream['y']))
+        
+        # Draw system warnings
+        for warning in self.warnings:
+            # Warning background
+            pygame.draw.rect(surface, (30, 0, 0), 
+                            (warning['x'], warning['y'], 300, 60))
+            pygame.draw.rect(surface, (200, 0, 0), 
+                            (warning['x'], warning['y'], 300, 60), 2)
+            
+            # Warning text
+            title = self.font.render("⚠️ SYSTEM BREACH", True, (255, 100, 100))
+            code = self.font.render(f"SECURITY VIOLATION 0x{random.randint(0, 255):02X}", 
+                                   True, (255, 200, 100))
+            surface.blit(title, (warning['x'] + 10, warning['y'] + 5))
+            surface.blit(code, (warning['x'] + 10, warning['y'] + 35))
+        
+        # Draw PUNKEMV title with glow effect
+        title = "PUNKEMV"
+        for i in range(5):
+            offset = 5 - i
+            color = NEON_PALETTE[i % len(NEON_PALETTE)]
+            text = self.title_font.render(title, True, color)
+            surface.blit(text, (WIDTH - 700 + offset, 100 + offset))
+        
+        # Draw frame counter
+        counter = self.font.render(f"FRAME: {frame_num:04d}/300", True, (150, 150, 150))
+        surface.blit(counter, (20, HEIGHT - 40))
+        
+        # Add scanlines effect
+        self.apply_scanlines(surface)
+        
+        # Apply chromatic aberration
+        return self.apply_chromatic_aberration(surface)
+    
+    def apply_scanlines(self, surface):
+        """Apply scanline effect to the surface"""
+        for y in range(0, HEIGHT, 3):
+            pygame.draw.line(surface, (0, 0, 0, 50), (0, y), (WIDTH, y), 1)
+    
+    def apply_chromatic_aberration(self, surface):
+        """Apply chromatic aberration effect"""
+        # Convert surface to array
+        pixels = pygame.surfarray.array3d(surface)
+        
+        # Create RGB channels with offsets
+        r_channel = np.roll(pixels[:, :, 0], shift=-2, axis=1)
+        g_channel = pixels[:, :, 1]
+        b_channel = np.roll(pixels[:, :, 2], shift=2, axis=1)
+        
+        # Combine channels
+        aberrated = np.stack([r_channel, g_channel, b_channel], axis=2)
+        
+        # Convert back to surface
+        return pygame.surfarray.make_surface(aberrated)
 
-# Generate magnetic stripe
-def generate_track_data():
-    # Realistic Track 1/Track 2 data structure
-    track1 = "%B4485" + "".join(random.choice("0123456789") for _ in range(11)) + f"^PUNKEMV/DMP^{random.randint(23,27)}{random.randint(1,12):02d}1******?;"
-    track2 = ";" + "".join(random.choice("0123456789") for _ in range(16)) + f"={random.randint(23,27)}{random.randint(1,12):02d}1******?"
-    return track1, track2
+# Main rendering function
+def generate_frames():
+    # Create output directory
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
+    # Create generator
+    generator = CyberpunkGenerator()
+    
+    # Add initial particles
+    generator.add_particles(200, "binary")
+    generator.add_particles(50, "energy", WIDTH//2, HEIGHT//2)
+    generator.add_particles(100, "circuit")
+    
+    # Generate frames
+    print(f"🌀 Generating {TOTAL_FRAMES} cyber-frames...")
+    for frame in range(TOTAL_FRAMES):
+        # Update generator state
+        generator.update(frame)
+        
+        # Render frame
+        frame_surface = generator.render(screen)
+        
+        # Save frame
+        pygame.image.save(frame_surface, f"{OUTPUT_DIR}/frame_{frame:04d}.png")
+        
+        # Print progress
+        if frame % 10 == 0:
+            print(f"⚡ Progress: {frame+1}/{TOTAL_FRAMES}")
+    
+    print("\n🌌 Compiling cyber-experience...")
+    compile_video()
 
-track1, track2 = generate_track_data()
-
-# Draw stripe
-stripe_top, stripe_bottom = 300, 800
-draw.rectangle([(0, stripe_top), (WIDTH, stripe_bottom)], fill=(0, 0, 0))
-
-# Add track data
-try:
-    font = ImageFont.truetype("arial.ttf", 20)
-except Exception:
+def compile_video():
+    """Compile frames into a video using ffmpeg"""
+    # First pass: MP4 with H.264
+    mp4_cmd = [
+        'ffmpeg', '-y', '-framerate', str(FPS),
+        '-i', f'{OUTPUT_DIR}/frame_%04d.png',
+        '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+        '-preset', 'slow', '-crf', '18',
+        'punkemv_cyber.mp4'
+    ]
+    
+    # Second pass: WebM with VP9
+    webm_cmd = [
+        'ffmpeg', '-y', '-i', 'punkemv_cyber.mp4',
+        '-c:v', 'libvpx-vp9', '-b:v', '0',
+        '-crf', '20', '-pix_fmt', 'yuv420p',
+        '-auto-alt-ref', '0', 'punkemv_cyber.webm'
+    ]
+    
     try:
-        # Try common DejaVu fallback if available on many systems
-        font = ImageFont.truetype("DejaVuSans.ttf", 20)
-    except Exception:
-        font = ImageFont.load_default()
-track_color = (0, 255, 157)  # Neon green
-for i, track in enumerate([track1, track2]):
-    y_pos = stripe_top + 50 + (i * 30)
-    draw.text((50, y_pos), track, font=font, fill=track_color)
+        # Run MP4 conversion
+        print("Creating MP4 version...")
+        subprocess.run(mp4_cmd, check=True)
+        
+        # Run WebM conversion
+        print("Creating WebM version...")
+        subprocess.run(webm_cmd, check=True)
+        
+        print("✅ Final outputs: punkemv_cyber.mp4 and punkemv_cyber.webm")
+    except Exception as e:
+        print(f"❌ Video compilation failed: {str(e)}")
+        print("Frames are saved in the 'frames' directory")
 
-# Add punk text
-try:
-    punk_font = ImageFont.truetype("impact.ttf", 92)
-except Exception:
-    try:
-        punk_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 92)
-    except Exception:
-        punk_font = ImageFont.load_default()
-
-draw.text((1400, 540), "PUNKEMV", font=punk_font, fill=(255, 7, 58))
-
-# Glitch effect helper
-
-glitch_path = "glitchart" if glitchart is not None else "fallback"
-print(f"Glitch mode: {glitch_path}")
-
-def apply_glitch(image_array: np.ndarray, frame_index: int | None = None) -> np.ndarray:
-    if glitchart is not None:
-        try:
-            # Vary parameters per-frame if provided
-            quality = random.randint(10, 30)
-            chop_amount = random.uniform(0.4, 0.85)
-            return glitchart.jpeg(image_array, quality=quality, chop=chop_amount)
-        except Exception:
-            pass
-    # Fallback: introduce randomness via noise, jitter, and varying jpeg quality
-    from io import BytesIO
-
-    work = image_array.copy()
-
-    # 1) Horizontal jitter per scanline chunk
-    max_shift = 8
-    chunk_height = 8
-    for y in range(0, work.shape[0], chunk_height):
-        shift = random.randint(-max_shift, max_shift)
-        work[y : y + chunk_height] = np.roll(work[y : y + chunk_height], shift, axis=1)
-
-    # 2) Add random noise
-    noise_strength = random.randint(4, 16)
-    noise = np.random.randint(-noise_strength, noise_strength + 1, size=work.shape, dtype=np.int16)
-    work = np.clip(work.astype(np.int16) + noise, 0, 255).astype(np.uint8)
-
-    # 3) Random JPEG quality
-    buffer = BytesIO()
-    q = random.randint(6, 18)
-    Image.fromarray(work).save(buffer, format="JPEG", quality=q)
-    buffer.seek(0)
-    return np.array(Image.open(buffer).convert("RGB"))
-
-# Determine output
-if args.output:
-    output_path = args.output
-else:
-    output_ext = args.format
-    output_path = f"punkemv_wallpaper.{output_ext}"
-
-# Render frames and save
-if args.format == "png":
-    # Single frame image
-    img_array = np.array(canvas)
-    glitched_array = apply_glitch(img_array)
-    Image.fromarray(glitched_array).save(output_path)
-    print(f"Image generated: {output_path}")
-else:
-    # Animated video
-    import imageio
-
-    fps = max(1, args.fps)
-    total_frames = max(1, int(round(args.seconds * fps)))
-
-    # Choose codec and extra options per container
-    if args.format == "mp4":
-        codec = "libx264"
-        pixfmt = "yuv420p"
-    else:  # webm
-        codec = "libvpx-vp9"
-        pixfmt = None  # default
-
-    writer_kwargs = {"fps": fps, "codec": codec}
-    # Help with odd sizes for some codecs
-    writer_kwargs["macro_block_size"] = None
-    if pixfmt is not None:
-        writer_kwargs["pixelformat"] = pixfmt
-
-    with imageio.get_writer(output_path, **writer_kwargs) as writer:
-        base_array = np.array(canvas)
-        for frame_index in range(total_frames):
-            frame = apply_glitch(base_array, frame_index=frame_index)
-            writer.append_data(frame)
-
-    print(f"Video generated: {output_path}")
+if __name__ == "__main__":
+    generate_frames()
