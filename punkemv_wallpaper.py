@@ -1,6 +1,9 @@
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import numpy as np
-import glitchart
+try:
+    import glitchart  # type: ignore
+except Exception:
+    glitchart = None
 import random
 
 # Canvas setup
@@ -33,7 +36,14 @@ stripe_top, stripe_bottom = 300, 800
 draw.rectangle([(0, stripe_top), (WIDTH, stripe_bottom)], fill=(0, 0, 0))
 
 # Add track data
-font = ImageFont.truetype("arial.ttf", 20)
+try:
+    font = ImageFont.truetype("arial.ttf", 20)
+except Exception:
+    try:
+        # Try common DejaVu fallback if available on many systems
+        font = ImageFont.truetype("DejaVuSans.ttf", 20)
+    except Exception:
+        font = ImageFont.load_default()
 track_color = (0, 255, 157)  # Neon green
 for i, track in enumerate([track1, track2]):
     y_pos = stripe_top + 50 + (i * 30)
@@ -41,14 +51,31 @@ for i, track in enumerate([track1, track2]):
 
 # Glitch effect
 img_array = np.array(canvas)
-glitched_array = glitchart.jpeg(img_array, quality=20, chop=random.uniform(0.5, 0.8))
+
+def apply_glitch(image_array: np.ndarray) -> np.ndarray:
+    if glitchart is not None:
+        try:
+            return glitchart.jpeg(image_array, quality=20, chop=random.uniform(0.5, 0.8))
+        except Exception:
+            pass
+    # Fallback: jpeg re-encode to introduce compression artifacts
+    from io import BytesIO
+    buffer = BytesIO()
+    Image.fromarray(image_array).save(buffer, format="JPEG", quality=10)
+    buffer.seek(0)
+    return np.array(Image.open(buffer).convert("RGB"))
+
+glitched_array = apply_glitch(img_array)
 canvas = Image.fromarray(glitched_array)
 
 # Add punk text
 try:
     punk_font = ImageFont.truetype("impact.ttf", 92)
-except:
-    punk_font = ImageFont.load_default()
+except Exception:
+    try:
+        punk_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 92)
+    except Exception:
+        punk_font = ImageFont.load_default()
 draw.text((1400, 540), "PUNKEMV", font=punk_font, fill=(255, 7, 58))
 
 # Save final image
