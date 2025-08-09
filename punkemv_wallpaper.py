@@ -1,129 +1,130 @@
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import numpy as np
-try:
-    import glitchart  # type: ignore
-except Exception:
-    glitchart = None
 import random
-import argparse
+import math
 import os
+import cv2
+import glob
 
-# Canvas setup
+# ===== FUTURISTIC CONFIG =====
 WIDTH, HEIGHT = 1920, 1080
-BG_COLOR = (10, 10, 18)  # #0a0a12
+BG_COLOR = (5, 5, 15)  # Deep space black
+NEON_COLORS = [
+    (0, 255, 157),   # Matrix green
+    (255, 20, 147),  # Cyber pink
+    (0, 191, 255),   # Electric blue
+    (138, 43, 226)   # Purple haze
+]
+FPS = 60
+DURATION_SEC = 5
+TOTAL_FRAMES = FPS * DURATION_SEC
+# ===========================
 
-# Parse simple CLI options
-parser = argparse.ArgumentParser(description="Generate PUNKEMV wallpaper as video or image")
-parser.add_argument("--format", choices=["mp4", "webm", "png"], default="mp4", help="Output format")
-parser.add_argument("--fps", type=int, default=24, help="Frames per second for video")
-parser.add_argument("--seconds", type=float, default=3.0, help="Duration for video in seconds")
-parser.add_argument("--output", type=str, default=None, help="Output filename; if omitted, inferred from format")
-args = parser.parse_args()
+def install_dependencies():
+    print("⚙️ Installing dependencies...")
+    os.system("pip install opencv-python numpy")
+    os.system("apt-get update && apt-get install -y ffmpeg")
 
-# Create base image
-canvas = Image.new("RGB", (WIDTH, HEIGHT), BG_COLOR)
-draw = ImageDraw.Draw(canvas)
+def create_hologram_effect(img):
+    """Adds holographic scanlines and chromatic aberration"""
+    arr = np.array(img)
+    
+    # Chromatic aberration
+    for i in range(3):  # For each RGB channel
+        offset = random.randint(1, 3)
+        arr[:, :, i] = np.roll(arr[:, :, i], offset * (-1 if i % 2 else 1), axis=1)
+    
+    # Scanlines
+    scanline_intensity = 0.3
+    for y in range(0, HEIGHT, 2):
+        arr[y, :, :] = arr[y, :, :] * (1 - scanline_intensity)
+    
+    # Bloom effect
+    blurred = cv2.GaussianBlur(arr, (0, 0), 2)
+    arr = cv2.addWeighted(arr, 0.8, blurred, 0.2, 0)
+    
+    return Image.fromarray(arr)
 
-# Add concrete texture (replace with your own texture path or generate noise)
-try:
-    texture = Image.open("concrete.jpg").convert("RGBA").resize((WIDTH, HEIGHT))
-    texture = texture.point(lambda p: p * 0.3)  # Reduce opacity
-    canvas.paste(texture, (0, 0), texture)
-except Exception:
-    print("No texture found - proceeding without")
+def generate_cyber_frame(frame_num):
+    canvas = Image.new("RGB", (WIDTH, HEIGHT), BG_COLOR)
+    draw = ImageDraw.Draw(canvas)
+    
+    # Animated data core (pulsing center)
+    core_size = 100 + 20 * math.sin(frame_num / 10)
+    core_x, core_y = WIDTH // 2, HEIGHT // 2
+    for i in range(5, 0, -1):
+        draw.ellipse([
+            core_x - core_size * i, 
+            core_y - core_size * i,
+            core_x + core_size * i, 
+            core_y + core_size * i
+        ], outline=random.choice(NEON_COLORS), width=2)
+    
+    # Binary rain
+    for _ in range(150):
+        x = random.randint(0, WIDTH)
+        speed = random.randint(2, 5)
+        y = (frame_num * speed) % HEIGHT
+        char = random.choice(["0", "1", " "])
+        draw.text((x, y), char, fill=(0, 255, 0, 100), 
+                font=ImageFont.load_default())
+    
+    # Floating PUNKEMV text (holographic)
+    text = "PUNKEMV"
+    for i, char in enumerate(text):
+        offset = 10 * math.sin(frame_num/5 + i)
+        draw.text(
+            (1200 + i * 80, 400 + offset),
+            char,
+            fill=random.choice(NEON_COLORS),
+            font=ImageFont.truetype("arial.ttf", 72),
+            stroke_width=2,
+            stroke_fill=(255, 255, 255, 50)
+        )
+    
+    # Data stream (animated)
+    stream_y = 200 + 50 * math.sin(frame_num / 8)
+    hex_data = " ".join([f"{random.randint(0,255):02X}" for _ in range(25)])
+    draw.text((100, stream_y), hex_data, fill=(0, 255, 157), 
+             font=ImageFont.truetype("arial.ttf", 24))
+    
+    return create_hologram_effect(canvas)
 
-# Generate magnetic stripe
-def generate_track_data():
-    # Realistic Track 1/Track 2 data structure
-    track1 = "%B4485" + "".join(random.choice("0123456789") for _ in range(11)) + f"^PUNKEMV/DMP^{random.randint(23,27)}{random.randint(1,12):02d}1******?;"
-    track2 = ";" + "".join(random.choice("0123456789") for _ in range(16)) + f"={random.randint(23,27)}{random.randint(1,12):02d}1******?"
-    return track1, track2
+def main():
+    install_dependencies()
+    os.makedirs("frames", exist_ok=True)
+    
+    print(f"🌀 Generating {TOTAL_FRAMES} cyber-frames...")
+    for frame in range(TOTAL_FRAMES):
+        generate_cyber_frame(frame).save(f"frames/frame_{frame:04d}.png")
+        print(f"⚡ Progress: {frame+1}/{TOTAL_FRAMES}", end="\r")
+    for _ in range(50):
+    x1, y1 = random.randint(0, WIDTH), random.randint(0, HEIGHT)
+    x2, y2 = x1 + random.randint(20, 100), y1 + random.randint(-10, 10)
+    draw.line([x1, y1, x2, y2], fill=(0, 100, 255), width=1)
 
-track1, track2 = generate_track_data()
+# Add warning symbols
+if frame_num % 40 == 0:
+    draw.text((random.randint(0, WIDTH), random.randint(0, HEIGHT)),
+              "⚠️ SYSTEM BREACH", fill=(255, 0, 0), font=font)
+    print("\n🌌 Compiling cyber-experience...")
+    
+    # Create video
+    frames = sorted(glob.glob("frames/*.png"))
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    video = cv2.VideoWriter("punkemv_future.mp4", fourcc, FPS, (WIDTH, HEIGHT))
+    
+    for frame in frames:
+        img = cv2.imread(frame)
+        video.write(img)
+    video.release()
+    
+    # Convert to WebM if possible
+    if os.path.exists("/usr/bin/ffmpeg"):
+        os.system("ffmpeg -y -i punkemv_future.mp4 -c:v libvpx-vp9 -crf 25 -b:v 0 punkemv_future.webm")
+        print("✅ Final output: punkemv_future.webm (4K HDR-ready)")
+    else:
+        print("✅ Final output: punkemv_future.mp4")
 
-# Draw stripe
-stripe_top, stripe_bottom = 300, 800
-draw.rectangle([(0, stripe_top), (WIDTH, stripe_bottom)], fill=(0, 0, 0))
-
-# Add track data
-try:
-    font = ImageFont.truetype("arial.ttf", 20)
-except Exception:
-    try:
-        # Try common DejaVu fallback if available on many systems
-        font = ImageFont.truetype("DejaVuSans.ttf", 20)
-    except Exception:
-        font = ImageFont.load_default()
-track_color = (0, 255, 157)  # Neon green
-for i, track in enumerate([track1, track2]):
-    y_pos = stripe_top + 50 + (i * 30)
-    draw.text((50, y_pos), track, font=font, fill=track_color)
-
-# Add punk text
-try:
-    punk_font = ImageFont.truetype("impact.ttf", 92)
-except Exception:
-    try:
-        punk_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 92)
-    except Exception:
-        punk_font = ImageFont.load_default()
-
-draw.text((1400, 540), "PUNKEMV", font=punk_font, fill=(255, 7, 58))
-
-# Glitch effect helper
-
-def apply_glitch(image_array: np.ndarray) -> np.ndarray:
-    if glitchart is not None:
-        try:
-            return glitchart.jpeg(image_array, quality=20, chop=random.uniform(0.5, 0.8))
-        except Exception:
-            pass
-    # Fallback: jpeg re-encode to introduce compression artifacts
-    from io import BytesIO
-    buffer = BytesIO()
-    Image.fromarray(image_array).save(buffer, format="JPEG", quality=10)
-    buffer.seek(0)
-    return np.array(Image.open(buffer).convert("RGB"))
-
-# Determine output
-if args.output:
-    output_path = args.output
-else:
-    output_ext = args.format
-    output_path = f"punkemv_wallpaper.{output_ext}"
-
-# Render frames and save
-if args.format == "png":
-    # Single frame image
-    img_array = np.array(canvas)
-    glitched_array = apply_glitch(img_array)
-    Image.fromarray(glitched_array).save(output_path)
-    print(f"Image generated: {output_path}")
-else:
-    # Animated video
-    import imageio
-
-    fps = max(1, args.fps)
-    total_frames = max(1, int(round(args.seconds * fps)))
-
-    # Choose codec and extra options per container
-    if args.format == "mp4":
-        codec = "libx264"
-        pixfmt = "yuv420p"
-    else:  # webm
-        codec = "libvpx-vp9"
-        pixfmt = None  # default
-
-    writer_kwargs = {"fps": fps, "codec": codec}
-    # Help with odd sizes for some codecs
-    writer_kwargs["macro_block_size"] = None
-    if pixfmt is not None:
-        writer_kwargs["pixelformat"] = pixfmt
-
-    with imageio.get_writer(output_path, **writer_kwargs) as writer:
-        base_array = np.array(canvas)
-        for _ in range(total_frames):
-            frame = apply_glitch(base_array)
-            writer.append_data(frame)
-
-    print(f"Video generated: {output_path}")
+if __name__ == "__main__":
+    main()
